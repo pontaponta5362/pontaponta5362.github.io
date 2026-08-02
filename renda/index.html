@@ -118,11 +118,12 @@
     color:var(--ink); border-radius:10px; padding:10px 0; font-size:15px; font-weight:700;
     font-family:inherit; cursor:pointer;
   }
-  .pulse{
-    width:14px; height:14px; border-radius:50%; background:var(--axis);
-    margin:0 auto 6px; transition:transform .05s, background .05s;
+  .lane{
+    width:100%; height:64px; display:block; border-radius:10px;
+    background:var(--surface2); border:1px solid var(--border);
+    margin-bottom:4px; touch-action:none;
   }
-  .pulse.on{ background:var(--s1); transform:scale(1.7); }
+  .hit{ text-align:center; font-size:14px; font-weight:800; min-height:20px; margin-bottom:6px; color:var(--muted); }
   .meterwrap{ margin:10px 0 4px; }
   .meterbar{
     position:relative; height:26px; border-radius:8px; background:var(--surface2);
@@ -218,7 +219,6 @@
   <!-- ===== BPM追従 ===== -->
   <section id="sec-bpm">
     <div class="card">
-      <div class="pulse" id="bpPulse"></div>
       <div class="bpmval"><span id="bpVal">140</span> <small>BPM</small></div>
       <div class="stepper">
         <button data-d="-10">−10</button><button data-d="-5">−5</button>
@@ -247,11 +247,14 @@
       </div>
       <div class="judge" id="bpJudge"></div>
     </div>
-    <div class="tapzone" id="bpZone" style="min-height:32dvh;">
+    <canvas class="lane" id="bpLane"></canvas>
+    <div class="hit" id="bpHit">ノーツが判定線に重なる瞬間にタップ</div>
+    <div class="tapzone" id="bpZone" style="min-height:28dvh;">
       <div class="big" id="bpCount">0</div>
-      <div class="hint">スタート後、クリック音に合わせて連打</div>
+      <div class="hint">スタート後、ノーツと音に合わせて連打</div>
     </div>
     <button class="btn" id="bpBtn">スタート（音が鳴ります）</button>
+    <div class="resultline" style="text-align:center;">音が出ない時はマナーモードを解除して音量を確認してください</div>
   </section>
 
   <!-- ===== 持久力 ===== -->
@@ -434,7 +437,7 @@
   // =========================================================
   let bp = {
     running:false, bpm:140, div:4, ctx:null, nextBeat:0, timer:0,
-    taps:[], count:0, autoTimer:0, raf:0
+    taps:[], notes:[], count:0, autoTimer:0, raf:0, beatCount:0
   };
   const bpTargetTps = () => bp.bpm / 60 * bp.div;
 
@@ -463,27 +466,34 @@
     o.connect(g); g.connect(bp.ctx.destination);
     o.start(t); o.stop(t + 0.06);
   }
-  let beatCount = 0;
   function scheduler(){
     const spb = 60 / bp.bpm; // seconds per (quarter) beat
-    while(bp.nextBeat < bp.ctx.currentTime + 0.12){
-      click(bp.nextBeat, beatCount % 4 === 0);
-      const delay = (bp.nextBeat - bp.ctx.currentTime) * 1000;
-      setTimeout(() => {
-        const p = $('bpPulse');
-        p.classList.add('on');
-        setTimeout(() => p.classList.remove('on'), 90);
-      }, Math.max(0, delay));
+    while(bp.nextBeat < bp.ctx.currentTime + 1.6){
+      click(bp.nextBeat, bp.beatCount % 4 === 0);
+      for(let k = 0; k < bp.div; k++){
+        bp.notes.push({ t: bp.nextBeat + spb * k / bp.div, beat: k === 0 });
+      }
       bp.nextBeat += spb;
-      beatCount++;
+      bp.beatCount++;
     }
+    const cut = bp.ctx.currentTime - 0.35;
+    while(bp.notes.length && bp.notes[0].t < cut) bp.notes.shift();
   }
-  function bpStart(){
+  async function bpStart(){
     if(!bp.ctx) bp.ctx = new (window.AudioContext || window.webkitAudioContext)();
-    bp.ctx.resume();
-    bp.running = true; bp.taps = []; bp.count = 0; beatCount = 0;
+    // iOSのマナーモード対策: 「再生用」オーディオとして宣言 + 無音再生でアンロック
+    try{ if('audioSession' in navigator) navigator.audioSession.type = 'playback'; }catch(err){}
+    try{ await bp.ctx.resume(); }catch(err){}
+    try{
+      const buf = bp.ctx.createBuffer(1, 1, 22050);
+      const src = bp.ctx.createBufferSource();
+      src.buffer = buf; src.connect(bp.ctx.destination); src.start(0);
+    }catch(err){}
+    bp.running = true; bp.taps = []; bp.notes = []; bp.count = 0; bp.beatCount = 0;
     $('bpCount').textContent = '0';
-    bp.nextBeat = bp.ctx.currentTime + 0.2;
+    $('bpHit').textContent = 'ノーツが判定線に重なる瞬間にタップ';
+    $('bpHit').style.color = 'var(--muted)';
+    bp.nextBeat = bp.ctx.currentTime + 0.6;
     bp.timer = setInterval(scheduler, 25);
     if($('bpAuto').checked){
       bp.autoTimer = setInterval(() => {
@@ -501,6 +511,9 @@
     cancelAnimationFrame(bp.raf);
     $('bpFill').style.width = '0%';
     $('bpJudge').textContent = ''; $('bpActual').textContent = '0.0';
+    $('bpHit').textContent = '';
+    const cv = $('bpLane');
+    const c2 = cv.getContext('2d'); c2.clearRect(0, 0, cv.width, cv.height);
     const btn = $('bpBtn'); btn.textContent = 'スタート（音が鳴ります）'; btn.classList.remove('stop');
   }
   $('bpBtn').addEventListener('click', () => bp.running ? bpStop() : bpStart());
@@ -511,7 +524,54 @@
     reflash($('bpZone'), 'flash');
     bp.count++; $('bpCount').textContent = bp.count;
     bp.taps.push(now());
+    // タイミング判定: 一番近いノーツとのズレ
+    const tt = bp.ctx.currentTime;
+    let bestN = null, bestD = Infinity;
+    for(const n2 of bp.notes){
+      const d = Math.abs(n2.t - tt);
+      if(d < bestD){ bestD = d; bestN = n2; }
+    }
+    if(bestN && bestD < 0.5){
+      const dms = Math.round((tt - bestN.t) * 1000);
+      const a = Math.abs(dms), hit = $('bpHit');
+      if(a <= 45){ hit.textContent = '◎ PERFECT'; hit.style.color = 'var(--good)'; }
+      else if(a <= 100){ hit.textContent = (dms < 0 ? '○ 早め −' : '○ 遅れ ＋') + a + 'ms'; hit.style.color = 'var(--warn)'; }
+      else { hit.textContent = (dms < 0 ? '✕ 早すぎ −' : '✕ 遅すぎ ＋') + a + 'ms'; hit.style.color = '#e66767'; }
+    }
   });
+
+  // ---- ノーツレーン描画 ----
+  function drawLane(){
+    const cv = $('bpLane');
+    const dpr = window.devicePixelRatio || 1;
+    const cw = cv.clientWidth, ch = cv.clientHeight;
+    if(cv.width !== Math.round(cw * dpr)){ cv.width = Math.round(cw * dpr); cv.height = Math.round(ch * dpr); }
+    const c2 = cv.getContext('2d');
+    c2.setTransform(dpr, 0, 0, dpr, 0, 0);
+    c2.clearRect(0, 0, cw, ch);
+    const J = 46;                      // 判定線のx位置
+    const pxPerSec = (cw - J - 12) / 1.4; // 1.4秒先まで表示
+    const tnow = bp.ctx.currentTime;
+    const cy = ch / 2;
+    // 判定線
+    let glow = false;
+    for(const n2 of bp.notes){ if(Math.abs(n2.t - tnow) < 0.04){ glow = true; break; } }
+    c2.strokeStyle = glow ? '#ffffff' : '#c3c2b7';
+    c2.lineWidth = glow ? 3 : 2;
+    c2.beginPath(); c2.moveTo(J, 6); c2.lineTo(J, ch - 6); c2.stroke();
+    // ノーツ
+    for(const n2 of bp.notes){
+      const x = J + (n2.t - tnow) * pxPerSec;
+      if(x > cw + 12) continue;
+      const past = tnow - n2.t;
+      c2.globalAlpha = past > 0 ? Math.max(0, 1 - past / 0.3) : 1;
+      c2.beginPath();
+      c2.arc(x, cy, n2.beat ? 9 : 5, 0, Math.PI * 2);
+      c2.fillStyle = n2.beat ? '#3987e5' : '#898781';
+      c2.fill();
+      c2.globalAlpha = 1;
+    }
+  }
 
   function bpMeter(){
     const t = now(), win = 2000;
@@ -527,6 +587,7 @@
     else if(actual < target * 0.95){ j.textContent = '▲ もう少し速く'; j.className = 'judge slow'; }
     else if(actual > target * 1.05){ j.textContent = '▼ 速すぎ！リズムに合わせて'; j.className = 'judge fast'; }
     else { j.textContent = '◎ GOOD — ぴったり！'; j.className = 'judge ok'; }
+    drawLane();
     bp.raf = requestAnimationFrame(bpMeter);
   }
   bpUpdateTargetUI();
