@@ -174,7 +174,8 @@
   // =========================================================
   // Mode 1: 速度計測
   // =========================================================
-  const sp = { state:'idle', t0:0, count:0, dur:5, raf:0, cancel:null };
+  const LOCKOUT = 1200; // 計測終了後、タップを無視する時間(ms) — 叩き続けによる誤リスタート防止
+  const sp = { state:'idle', t0:0, count:0, dur:5, raf:0, cancel:null, doneAt:0 };
   function spShowBest(){
     const b = DB.bests['sp' + sp.dur];
     $('spBest').textContent = b != null ? b.toFixed(1) : '–';
@@ -196,6 +197,7 @@
       sp.count++;
       $('spBig').textContent = sp.count;
     } else if(sp.state === 'done'){
+      if(now() - sp.doneAt < LOCKOUT) return; // 叩き続け吸収ストッパー
       spReset();
     }
   });
@@ -208,10 +210,12 @@
   }
   function spFinish(){
     sp.state = 'done';
+    sp.doneAt = now();
     $('spZone').classList.remove('running');
     const tps = sp.count / sp.dur;
     $('spBig').textContent = '終了！';
-    $('spMid').textContent = 'タップでもう一回';
+    $('spMid').textContent = '';
+    setTimeout(() => { if(sp.state === 'done') $('spMid').textContent = 'タップでもう一回'; }, LOCKOUT);
     $('spTps').textContent = tps.toFixed(1);
     $('spBpm').textContent = Math.round(tps * 15);
     const isBest = updBest('sp' + sp.dur, Math.round(tps * 10) / 10);
@@ -235,7 +239,7 @@
   // =========================================================
   // Mode 2: 交互連打
   // =========================================================
-  const al = { state:'idle', t0:0, dur:10, L:0, R:0, alt:0, last:null, raf:0, cancel:null };
+  const al = { state:'idle', t0:0, dur:10, L:0, R:0, alt:0, last:null, raf:0, cancel:null, doneAt:0 };
   chipGroup($('altDur'), v => { al.dur = v; altReset(); });
 
   function altTap(side, zone, flashCls){
@@ -267,10 +271,12 @@
   }
   function altFinish(){
     al.state = 'done';
+    al.doneAt = now();
     const total = al.L + al.R;
     const tps = total / al.dur;
     const rate = total > 1 ? Math.round(al.alt / (total - 1) * 100) : 0;
-    $('altTime').textContent = '終了！ゾーンタップでもう一回';
+    $('altTime').textContent = '終了！';
+    setTimeout(() => { if(al.state === 'done') $('altTime').textContent = 'ゾーンタップでもう一回'; }, LOCKOUT);
     $('altTps').textContent = tps.toFixed(1);
     $('altRate').textContent = rate + '%';
     const balL = total ? Math.round(al.L / total * 100) : 50;
@@ -294,7 +300,9 @@
     $('altMsg').textContent = '';
   }
   document.querySelectorAll('#sec-alt .halfzone').forEach(z => {
-    z.addEventListener('pointerdown', () => { if(al.state === 'done') altReset(); });
+    z.addEventListener('pointerdown', () => {
+      if(al.state === 'done' && now() - al.doneAt >= LOCKOUT) altReset(); // 叩き続け吸収ストッパー
+    });
   });
 
   // =========================================================
@@ -491,7 +499,7 @@
   // =========================================================
   // Mode 4: 持久力
   // =========================================================
-  const en = { state:'idle', t0:0, dur:30, count:0, buckets:[], raf:0, cancel:null };
+  const en = { state:'idle', t0:0, dur:30, count:0, buckets:[], raf:0, cancel:null, doneAt:0 };
   chipGroup($('enDur'), v => { en.dur = v; enReset(); });
   if(DEV){
     const b = document.createElement('button');
@@ -519,6 +527,7 @@
       en.buckets[i]++; en.count++;
       $('enBig').textContent = en.count;
     } else if(en.state === 'done'){
+      if(now() - en.doneAt < LOCKOUT) return; // 叩き続け吸収ストッパー
       enReset();
     }
   });
@@ -534,10 +543,12 @@
   }
   function enFinish(){
     en.state = 'done';
+    en.doneAt = now();
     $('enZone').classList.remove('running');
     $('enTime').textContent = '終了！';
     $('enBig').textContent = '終了！';
-    $('enMid').textContent = '合計 ' + en.count + ' 打。ゾーンタップでもう一回';
+    $('enMid').textContent = '合計 ' + en.count + ' 打';
+    setTimeout(() => { if(en.state === 'done') $('enMid').textContent = '合計 ' + en.count + ' 打。タップでもう一回'; }, LOCKOUT);
     const b = en.buckets;
     const avg = a => a.reduce((s, x) => s + x, 0) / a.length;
     const first = avg(b.slice(0, 5)), last = avg(b.slice(-5));
