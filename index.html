@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pontao Apps</title>
+<style>
+  :root{ color-scheme:dark; }
+  body{
+    margin:0; min-height:100dvh; background:#0d0d0d; color:#fff;
+    font-family:system-ui,-apple-system,"Segoe UI","Hiragino Sans","Noto Sans JP",sans-serif;
+    display:flex; flex-direction:column; align-items:center; padding:32px 16px;
+    box-sizing:border-box;
+  }
+  h1{ font-size:22px; margin:0 0 4px; }
+  p.sub{ font-size:13px; color:#898781; margin:0 0 24px; }
+  a.app{
+    display:block; width:100%; max-width:480px; text-decoration:none;
+    background:#1a1a19; border:1px solid rgba(255,255,255,.1); border-radius:14px;
+    padding:16px; margin-bottom:12px; color:#fff;
+  }
+  a.app .t{ font-size:16px; font-weight:700; }
+  a.app .d{ font-size:12.5px; color:#c3c2b7; margin-top:4px; line-height:1.6; }
+  a.app:active{ background:#222220; }
+</style>
+</head>
+<body>
+  <h1>Pontao Apps</h1>
+  <p class="sub">作ったアプリの一覧</p>
+  <a class="app" href="./renda/">
+    <div class="t">⚡ 連打トレーナー</div>
+    <div class="d">音ゲー向けのタップ連打特訓アプリ。速度計測・交互連打・BPM追従・持久力の4モード。</div>
+  </a>
+</body>
+</html>
