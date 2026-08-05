@@ -1,0 +1,556 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>精度トレーナー — メトロノーム型タイミング練習</title>
+<style>
+  :root {
+    color-scheme: light;
+    --surface-1: #fcfcfb;
+    --page: #f9f9f7;
+    --ink-1: #0b0b0b;
+    --ink-2: #52514e;
+    --muted: #898781;
+    --grid: #e1e0d9;
+    --baseline: #c3c2b7;
+    --border: rgba(11,11,11,0.10);
+    --series-1: #2a78d6;
+    --series-1-soft: rgba(42,120,214,0.14);
+    --series-1-softer: rgba(42,120,214,0.07);
+    --good: #0ca30c;
+    --good-text: #006300;
+    --warning: #fab219;
+    --critical: #d03b3b;
+    --fast-ink: #1c5cab;
+    --late-ink: #b02f2f;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --surface-1: #1a1a19;
+      --page: #0d0d0d;
+      --ink-1: #ffffff;
+      --ink-2: #c3c2b7;
+      --muted: #898781;
+      --grid: #2c2c2a;
+      --baseline: #383835;
+      --border: rgba(255,255,255,0.10);
+      --series-1: #3987e5;
+      --series-1-soft: rgba(57,135,229,0.20);
+      --series-1-softer: rgba(57,135,229,0.10);
+      --good: #0ca30c;
+      --good-text: #0ca30c;
+      --warning: #fab219;
+      --critical: #e66767;
+      --fast-ink: #6da7ec;
+      --late-ink: #e66767;
+    }
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    background: var(--page);
+    color: var(--ink-1);
+    padding: 16px;
+    max-width: 880px;
+    margin: 0 auto;
+    -webkit-tap-highlight-color: transparent;
+  }
+  header { margin-bottom: 12px; }
+  h1 { font-size: 18px; font-weight: 700; }
+  header p { font-size: 12px; color: var(--ink-2); margin-top: 2px; }
+
+  .card {
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px;
+    margin-bottom: 12px;
+  }
+
+  /* ---- controls ---- */
+  .controls { display: flex; flex-wrap: wrap; gap: 12px 20px; align-items: flex-end; }
+  .ctl { display: flex; flex-direction: column; gap: 4px; }
+  .ctl label { font-size: 11px; color: var(--ink-2); font-weight: 600; }
+  .ctl .row { display: flex; align-items: center; gap: 8px; }
+  input[type="range"] { width: 130px; accent-color: var(--series-1); }
+  input[type="number"], select {
+    font: inherit; font-size: 14px; color: var(--ink-1);
+    background: var(--page); border: 1px solid var(--border);
+    border-radius: 6px; padding: 4px 8px; width: 74px;
+  }
+  select { width: auto; }
+  button {
+    font: inherit; font-size: 14px; font-weight: 600;
+    border-radius: 8px; border: 1px solid var(--border);
+    background: var(--page); color: var(--ink-1);
+    padding: 8px 16px; cursor: pointer;
+  }
+  button.primary { background: var(--series-1); color: #fff; border-color: transparent; }
+  button:active { transform: translateY(1px); }
+  button.small { font-size: 12px; padding: 4px 10px; font-weight: 500; }
+  .calval { font-size: 12px; color: var(--ink-2); min-width: 52px; font-variant-numeric: tabular-nums; }
+
+  /* ---- pad ---- */
+  .pad {
+    position: relative;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    min-height: 170px; border-radius: 10px;
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    cursor: pointer; user-select: none; touch-action: manipulation;
+    overflow: hidden;
+    margin-bottom: 12px;
+  }
+  .pad .beatring {
+    position: absolute; inset: 0; border-radius: 10px;
+    border: 3px solid transparent; pointer-events: none;
+  }
+  .pad.pulse .beatring { border-color: var(--series-1-soft); }
+  .pad .offset-big {
+    font-size: 44px; font-weight: 800; letter-spacing: -1px;
+    font-variant-numeric: tabular-nums;
+  }
+  .pad .judge {
+    font-size: 14px; font-weight: 700; margin-top: 2px;
+    padding: 2px 12px; border-radius: 999px; border: 1px solid var(--border);
+  }
+  .pad .hint { font-size: 12px; color: var(--muted); margin-top: 10px; }
+  .fast { color: var(--fast-ink); }
+  .late { color: var(--late-ink); }
+
+  /* ---- stat tiles ---- */
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(105px, 1fr)); gap: 8px; }
+  .tile {
+    background: var(--surface-1); border: 1px solid var(--border);
+    border-radius: 10px; padding: 10px 12px;
+  }
+  .tile .k { font-size: 11px; color: var(--ink-2); font-weight: 600; }
+  .tile .v { font-size: 22px; font-weight: 700; margin-top: 2px; font-variant-numeric: tabular-nums; }
+  .tile .s { font-size: 11px; color: var(--muted); }
+
+  /* ---- charts ---- */
+  .chart-title { font-size: 13px; font-weight: 700; margin-bottom: 2px; }
+  .chart-sub { font-size: 11px; color: var(--ink-2); margin-bottom: 8px; }
+  svg { display: block; width: 100%; height: auto; }
+  .axis-label { font-size: 10px; fill: var(--muted); }
+  .win-label { font-size: 9px; font-weight: 600; }
+
+  details { margin-bottom: 12px; }
+  summary { font-size: 13px; font-weight: 600; color: var(--ink-2); cursor: pointer; padding: 6px 2px; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  th, td { text-align: right; padding: 4px 8px; border-bottom: 1px solid var(--grid); font-variant-numeric: tabular-nums; }
+  th { color: var(--ink-2); font-weight: 600; }
+  td:first-child, th:first-child { text-align: left; }
+
+  footer { font-size: 11px; color: var(--muted); line-height: 1.6; padding: 4px 2px 20px; }
+  kbd {
+    font-family: inherit; font-size: 11px; border: 1px solid var(--border);
+    border-radius: 4px; padding: 0 5px; background: var(--surface-1);
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>精度トレーナー</h1>
+  <p>クリック音に合わせて叩き、ズレ(ms)のバラつきと FAST/LATE 傾向を可視化する練習ツール</p>
+</header>
+
+<div class="card">
+  <div class="controls">
+    <div class="ctl">
+      <label for="bpm">BPM</label>
+      <div class="row">
+        <input type="range" id="bpmSlider" min="40" max="300" value="120">
+        <input type="number" id="bpm" min="40" max="300" value="120">
+      </div>
+    </div>
+    <div class="ctl">
+      <label for="subdiv">叩く音価(クリックは4分)</label>
+      <select id="subdiv">
+        <option value="1" selected>4分 (クリックと同時)</option>
+        <option value="2">8分</option>
+        <option value="4">16分</option>
+      </select>
+    </div>
+    <div class="ctl">
+      <label for="calib">表示/入力遅延の補正</label>
+      <div class="row">
+        <input type="range" id="calib" min="-100" max="100" value="0">
+        <span class="calval" id="calibVal">0 ms</span>
+        <button class="small" id="autoZero" title="現在の平均ズレを0に合わせる">平均を0に</button>
+      </div>
+    </div>
+    <div class="ctl">
+      <label>&nbsp;</label>
+      <div class="row">
+        <button class="primary" id="startBtn">スタート</button>
+        <button id="resetBtn">リセット</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="pad" id="pad">
+  <div class="beatring"></div>
+  <div class="offset-big" id="offsetBig">—</div>
+  <div class="judge" id="judgeLabel">スタートして、ここをタップ or <span style="white-space:nowrap">F / J / スペース</span></div>
+  <div class="hint" id="padHint">最初の4拍はカウントイン(計測しません)</div>
+</div>
+
+<div class="tiles" style="margin-bottom:12px">
+  <div class="tile"><div class="k">計測数</div><div class="v" id="stN">0</div><div class="s">打</div></div>
+  <div class="tile"><div class="k">平均ズレ</div><div class="v" id="stMean">—</div><div class="s" id="stMeanSide">&nbsp;</div></div>
+  <div class="tile"><div class="k">バラつき (SD)</div><div class="v" id="stSd">—</div><div class="s">小さいほど安定</div></div>
+  <div class="tile"><div class="k">太鼓 良 率</div><div class="v" id="stTaiko">—</div><div class="s">±25ms 以内</div></div>
+  <div class="tile"><div class="k">maimai P 率</div><div class="v" id="stMai">—</div><div class="s">±50ms 以内</div></div>
+  <div class="tile"><div class="k">CP級 率</div><div class="v" id="stCp">—</div><div class="s">±16.7ms 以内</div></div>
+</div>
+
+<div class="card">
+  <div class="chart-title">ズレの分布</div>
+  <div class="chart-sub">中央 0ms が音源とジャスト。左が FAST(早い)、右が LATE(遅い)。縦線は各ゲームの判定境界</div>
+  <div id="histWrap"></div>
+</div>
+
+<div class="card">
+  <div class="chart-title">直近のズレ推移</div>
+  <div class="chart-sub">最新60打。帯は 太鼓 良(±25ms)/ maimai PERFECT(±50ms) の範囲</div>
+  <div id="driftWrap"></div>
+</div>
+
+<details>
+  <summary>直近20打の詳細(テーブル表示)</summary>
+  <div class="card" style="margin-top:6px">
+    <table>
+      <thead><tr><th>#</th><th>ズレ (ms)</th><th>方向</th><th>太鼓相当</th><th>maimai相当</th></tr></thead>
+      <tbody id="hitTableBody"><tr><td colspan="5" style="text-align:center;color:var(--muted)">まだデータがありません</td></tr></tbody>
+    </table>
+  </div>
+</details>
+
+<footer>
+  判定の目安 — 太鼓の達人(AC おに/むずかしい): 良 ±25.0ms / 可 ±75.1ms。maimai DX (TAP): CRITICAL PERFECT ±16.7ms / PERFECT ±50ms / GREAT ±100ms。<br>
+  ブラウザやキーボード・タッチパネル自体に遅延があるため、絶対値は実機とズレます。まず30打ほど叩いて「平均を0に」を押し、そこから <b>SD(バラつき)を小さくする</b>ことと <b>FAST/LATE の偏りに気づく</b>ことを目標にしてください。バラつきが±25msに収まる体を作るのがこのツールの役目で、実機の筐体に平均を合わせるのは現地での調整です。
+</footer>
+
+<script>
+(() => {
+  'use strict';
+
+  // ---------- state ----------
+  const S = {
+    running: false,
+    audio: null,
+    schedTimer: null,
+    nextClickTime: 0,     // audio-clock time of next quarter-note click
+    beatIndex: 0,         // quarter-note counter (0-based; 0..3 = count-in)
+    targets: [],          // {t: audioTime} recent hit targets (subdivision grid)
+    perfOffset: null,     // EMA of (audioCtx.currentTime - performance.now()/1000)
+    hits: [],             // measured offsets in ms (after calibration)
+    calib: 0,             // ms, added to raw offset
+    bpm: 120,
+    subdiv: 1,
+    countInBeats: 4,
+    outLatency: 0,
+  };
+  const COUNT_IN_MS = () => S.countInBeats * 60000 / S.bpm;
+  const MATCH_LIMIT = 150; // ms; beyond this a hit is ignored
+  const WINDOWS = { cp: 16.7, taikoRyo: 25.0, maiP: 50.0, taikoKa: 75.1 };
+
+  // ---------- dom ----------
+  const $ = id => document.getElementById(id);
+  const pad = $('pad'), offsetBig = $('offsetBig'), judgeLabel = $('judgeLabel'), padHint = $('padHint');
+
+  // ---------- audio ----------
+  function ensureAudio() {
+    if (!S.audio) S.audio = new (window.AudioContext || window.webkitAudioContext)();
+    if (S.audio.state === 'suspended') S.audio.resume();
+    S.outLatency = S.audio.outputLatency || S.audio.baseLatency || 0;
+  }
+  function clickSound(time, accent) {
+    const ctx = S.audio;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.frequency.value = accent ? 1568 : 1046;
+    gain.gain.setValueAtTime(accent ? 0.5 : 0.35, time);
+    gain.gain.exponentialRampToValueAtTime(0.001, time + 0.05);
+    osc.connect(gain).connect(ctx.destination);
+    osc.start(time); osc.stop(time + 0.06);
+  }
+
+  // ---------- scheduler ----------
+  const LOOKAHEAD_S = 0.12, TICK_MS = 25;
+  function schedulerTick() {
+    const ctx = S.audio;
+    // keep perf-clock <-> audio-clock mapping fresh (EMA)
+    const inst = ctx.currentTime - performance.now() / 1000;
+    S.perfOffset = (S.perfOffset === null) ? inst : S.perfOffset * 0.9 + inst * 0.1;
+
+    const quarter = 60 / S.bpm;
+    while (S.nextClickTime < ctx.currentTime + LOOKAHEAD_S) {
+      const accent = S.beatIndex % 4 === 0;
+      clickSound(S.nextClickTime, accent);
+      schedulePulse(S.nextClickTime);
+      const measuring = S.beatIndex >= S.countInBeats;
+      for (let i = 0; i < S.subdiv; i++) {
+        const t = S.nextClickTime + (i * quarter) / S.subdiv;
+        if (measuring || i > 0 && S.beatIndex === S.countInBeats - 1)
+          S.targets.push({ t });
+      }
+      S.nextClickTime += quarter;
+      S.beatIndex++;
+    }
+    // prune old targets
+    const cut = ctx.currentTime - 2;
+    while (S.targets.length && S.targets[0].t < cut) S.targets.shift();
+  }
+  function schedulePulse(audioTime) {
+    const delayMs = (audioTime - S.audio.currentTime) * 1000;
+    setTimeout(() => {
+      if (!S.running) return;
+      pad.classList.add('pulse');
+      setTimeout(() => pad.classList.remove('pulse'), 90);
+      if (S.beatIndex <= S.countInBeats + 1 && padHint.textContent) {
+        const remain = Math.max(0, S.countInBeats - Math.round((S.audio.currentTime - startAudioTime) / (60 / S.bpm)));
+        padHint.textContent = remain > 0 ? `カウントイン… ${remain}` : '計測中';
+      }
+    }, Math.max(0, delayMs));
+  }
+
+  let startAudioTime = 0;
+  function start() {
+    ensureAudio();
+    S.running = true;
+    S.beatIndex = 0;
+    S.targets = [];
+    S.perfOffset = null;
+    S.nextClickTime = S.audio.currentTime + 0.25;
+    startAudioTime = S.nextClickTime;
+    S.schedTimer = setInterval(schedulerTick, TICK_MS);
+    schedulerTick();
+    if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+    $('startBtn').textContent = 'ストップ';
+    $('startBtn').classList.remove('primary');
+    padHint.textContent = 'カウントイン…';
+  }
+  function stop() {
+    S.running = false;
+    clearInterval(S.schedTimer);
+    $('startBtn').textContent = 'スタート';
+    $('startBtn').classList.add('primary');
+    padHint.textContent = '最初の4拍はカウントイン(計測しません)';
+  }
+
+  // ---------- hit handling ----------
+  function judge(absMs) {
+    if (absMs <= WINDOWS.cp)       return { label: 'CRITICAL PERFECT 級', color: 'var(--good-text)' };
+    if (absMs <= WINDOWS.taikoRyo) return { label: '太鼓 良 / maimai P', color: 'var(--good-text)' };
+    if (absMs <= WINDOWS.maiP)     return { label: 'maimai PERFECT (太鼓は可)', color: 'var(--series-1)' };
+    if (absMs <= WINDOWS.taikoKa)  return { label: '太鼓 可 / maimai GREAT', color: 'var(--warning)' };
+    return { label: '判定外レベル', color: 'var(--critical)' };
+  }
+  function onHit() {
+    if (!S.running || S.perfOffset === null) return;
+    const hitAudioTime = performance.now() / 1000 + S.perfOffset;
+    if (!S.targets.length) return;
+    // nearest target; clicks are heard outLatency later than scheduled
+    let best = null, bestAbs = Infinity;
+    for (const tg of S.targets) {
+      const d = (hitAudioTime - (tg.t + S.outLatency)) * 1000;
+      if (Math.abs(d) < bestAbs) { bestAbs = Math.abs(d); best = d; }
+    }
+    if (best === null || Math.abs(best) > MATCH_LIMIT) {
+      offsetBig.textContent = '×'; offsetBig.className = 'offset-big';
+      judgeLabel.textContent = '±150ms 圏外(計測対象外)'; judgeLabel.style.color = 'var(--muted)';
+      return;
+    }
+    const off = best + S.calib;
+    S.hits.push(off);
+    renderHit(off);
+    renderStats();
+    renderCharts();
+    renderTable();
+  }
+  function renderHit(off) {
+    const abs = Math.abs(off);
+    const j = judge(abs);
+    const side = off < -1 ? 'FAST' : off > 1 ? 'LATE' : 'JUST';
+    offsetBig.textContent = (off > 0 ? '+' : '') + off.toFixed(1) + 'ms';
+    offsetBig.className = 'offset-big ' + (side === 'FAST' ? 'fast' : side === 'LATE' ? 'late' : '');
+    judgeLabel.textContent = `${side} ・ ${j.label}`;
+    judgeLabel.style.color = j.color;
+  }
+
+  // ---------- stats ----------
+  function stats() {
+    const n = S.hits.length;
+    if (!n) return null;
+    const mean = S.hits.reduce((a, b) => a + b, 0) / n;
+    const sd = Math.sqrt(S.hits.reduce((a, b) => a + (b - mean) ** 2, 0) / n);
+    const within = w => S.hits.filter(h => Math.abs(h) <= w).length / n * 100;
+    return { n, mean, sd, cp: within(WINDOWS.cp), ryo: within(WINDOWS.taikoRyo), p: within(WINDOWS.maiP) };
+  }
+  function renderStats() {
+    const st = stats();
+    $('stN').textContent = st ? st.n : 0;
+    $('stMean').textContent = st ? (st.mean > 0 ? '+' : '') + st.mean.toFixed(1) : '—';
+    $('stMeanSide').textContent = st ? (st.mean < -1 ? 'FAST寄り' : st.mean > 1 ? 'LATE寄り' : 'ほぼ中央') : ' ';
+    $('stSd').textContent = st ? st.sd.toFixed(1) : '—';
+    $('stTaiko').textContent = st ? st.ryo.toFixed(0) + '%' : '—';
+    $('stMai').textContent = st ? st.p.toFixed(0) + '%' : '—';
+    $('stCp').textContent = st ? st.cp.toFixed(0) + '%' : '—';
+  }
+
+  // ---------- charts ----------
+  const HIST_RANGE = 100, BIN = 5;
+  function renderCharts() { renderHist(); renderDrift(); }
+
+  function renderHist() {
+    const W = 820, H = 220, mL = 10, mR = 10, mT = 26, mB = 24;
+    const pw = W - mL - mR, ph = H - mT - mB;
+    const nb = (HIST_RANGE * 2) / BIN;
+    const bins = new Array(nb).fill(0);
+    for (const h of S.hits) {
+      if (Math.abs(h) >= HIST_RANGE) continue;
+      bins[Math.floor((h + HIST_RANGE) / BIN)]++;
+    }
+    const maxC = Math.max(1, ...bins);
+    const x = ms => mL + (ms + HIST_RANGE) / (HIST_RANGE * 2) * pw;
+    let s = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="ズレ分布ヒストグラム">`;
+    // window shading (soft washes)
+    s += `<rect x="${x(-WINDOWS.maiP)}" y="${mT}" width="${x(WINDOWS.maiP) - x(-WINDOWS.maiP)}" height="${ph}" fill="var(--series-1-softer)"/>`;
+    s += `<rect x="${x(-WINDOWS.taikoRyo)}" y="${mT}" width="${x(WINDOWS.taikoRyo) - x(-WINDOWS.taikoRyo)}" height="${ph}" fill="var(--series-1-soft)"/>`;
+    // baseline
+    s += `<line x1="${mL}" y1="${mT + ph}" x2="${mL + pw}" y2="${mT + ph}" stroke="var(--baseline)" stroke-width="1"/>`;
+    // bars
+    const bw = pw / nb;
+    for (let i = 0; i < nb; i++) {
+      if (!bins[i]) continue;
+      const bh = bins[i] / maxC * (ph - 6);
+      s += `<rect x="${(mL + i * bw + 1).toFixed(1)}" y="${(mT + ph - bh).toFixed(1)}" width="${(bw - 2).toFixed(1)}" height="${bh.toFixed(1)}" rx="3" fill="var(--series-1)"><title>${i * BIN - HIST_RANGE}〜${(i + 1) * BIN - HIST_RANGE}ms: ${bins[i]}打</title></rect>`;
+    }
+    // window boundary lines + labels
+    const lines = [
+      { v: WINDOWS.cp,       dash: '3 3', label: 'CP ±16.7' },
+      { v: WINDOWS.taikoRyo, dash: '',    label: '良 ±25' },
+      { v: WINDOWS.maiP,     dash: '',    label: 'P ±50' },
+      { v: WINDOWS.taikoKa,  dash: '3 3', label: '可 ±75' },
+    ];
+    for (const ln of lines) {
+      for (const sign of [-1, 1]) {
+        s += `<line x1="${x(sign * ln.v)}" y1="${mT - 2}" x2="${x(sign * ln.v)}" y2="${mT + ph}" stroke="var(--muted)" stroke-width="1" ${ln.dash ? `stroke-dasharray="${ln.dash}"` : ''} opacity="0.7"/>`;
+      }
+      s += `<text class="win-label" x="${x(ln.v)}" y="${mT - 8}" text-anchor="middle" fill="var(--ink-2)">${ln.label}</text>`;
+    }
+    // center line
+    s += `<line x1="${x(0)}" y1="${mT - 2}" x2="${x(0)}" y2="${mT + ph}" stroke="var(--ink-2)" stroke-width="1"/>`;
+    s += `<text class="win-label" x="${x(0)}" y="${mT - 8}" text-anchor="middle" fill="var(--ink-2)">0</text>`;
+    // mean marker
+    const st = stats();
+    if (st && Math.abs(st.mean) < HIST_RANGE) {
+      s += `<line x1="${x(st.mean)}" y1="${mT + 4}" x2="${x(st.mean)}" y2="${mT + ph}" stroke="var(--critical)" stroke-width="2" opacity="0.85"/>`;
+      s += `<text class="win-label" x="${x(st.mean)}" y="${H - 8}" text-anchor="middle" fill="var(--critical)">平均 ${(st.mean > 0 ? '+' : '') + st.mean.toFixed(1)}</text>`;
+    }
+    // axis labels
+    s += `<text class="axis-label" x="${mL}" y="${H - 8}" text-anchor="start">← FAST −${HIST_RANGE}ms</text>`;
+    s += `<text class="axis-label" x="${mL + pw}" y="${H - 8}" text-anchor="end">+${HIST_RANGE}ms LATE →</text>`;
+    s += `</svg>`;
+    $('histWrap').innerHTML = s;
+  }
+
+  function renderDrift() {
+    const W = 820, H = 190, mL = 34, mR = 10, mT = 10, mB = 18;
+    const pw = W - mL - mR, ph = H - mT - mB;
+    const N = 60;
+    const data = S.hits.slice(-N);
+    const R = 80;
+    const y = ms => mT + (1 - (ms + R) / (R * 2)) * ph;
+    const x = i => mL + (data.length <= 1 ? pw / 2 : i / (data.length - 1) * pw);
+    let s = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="ズレ推移">`;
+    s += `<rect x="${mL}" y="${y(WINDOWS.maiP)}" width="${pw}" height="${y(-WINDOWS.maiP) - y(WINDOWS.maiP)}" fill="var(--series-1-softer)"/>`;
+    s += `<rect x="${mL}" y="${y(WINDOWS.taikoRyo)}" width="${pw}" height="${y(-WINDOWS.taikoRyo) - y(WINDOWS.taikoRyo)}" fill="var(--series-1-soft)"/>`;
+    s += `<line x1="${mL}" y1="${y(0)}" x2="${mL + pw}" y2="${y(0)}" stroke="var(--baseline)" stroke-width="1"/>`;
+    for (const g of [-50, -25, 25, 50]) {
+      s += `<line x1="${mL}" y1="${y(g)}" x2="${mL + pw}" y2="${y(g)}" stroke="var(--grid)" stroke-width="1"/>`;
+      s += `<text class="axis-label" x="${mL - 4}" y="${y(g) + 3}" text-anchor="end">${g > 0 ? '+' + g : g}</text>`;
+    }
+    s += `<text class="axis-label" x="${mL - 4}" y="${y(0) + 3}" text-anchor="end">0</text>`;
+    s += `<text class="axis-label" x="${mL}" y="${mT + 8}" text-anchor="start">LATE ↑</text>`;
+    s += `<text class="axis-label" x="${mL}" y="${mT + ph - 2}" text-anchor="start">FAST ↓</text>`;
+    if (data.length >= 2) {
+      let pts = data.map((d, i) => `${x(i).toFixed(1)},${y(Math.max(-R, Math.min(R, d))).toFixed(1)}`).join(' ');
+      s += `<polyline points="${pts}" fill="none" stroke="var(--series-1)" stroke-width="2" stroke-linejoin="round" opacity="0.55"/>`;
+    }
+    data.forEach((d, i) => {
+      const cy = y(Math.max(-R, Math.min(R, d)));
+      s += `<circle cx="${x(i).toFixed(1)}" cy="${cy.toFixed(1)}" r="4" fill="var(--series-1)" stroke="var(--surface-1)" stroke-width="2"><title>${(d > 0 ? '+' : '') + d.toFixed(1)}ms</title></circle>`;
+    });
+    s += `</svg>`;
+    $('driftWrap').innerHTML = s;
+  }
+
+  // ---------- table ----------
+  function renderTable() {
+    const body = $('hitTableBody');
+    const last = S.hits.slice(-20).reverse();
+    if (!last.length) return;
+    body.innerHTML = last.map((h, i) => {
+      const a = Math.abs(h);
+      const taiko = a <= WINDOWS.taikoRyo ? '良' : a <= WINDOWS.taikoKa ? '可' : '不可';
+      const mai = a <= WINDOWS.cp ? 'CP' : a <= WINDOWS.maiP ? 'PERFECT' : a <= 100 ? 'GREAT' : 'GOOD以下';
+      return `<tr><td>${S.hits.length - i}</td><td>${(h > 0 ? '+' : '') + h.toFixed(1)}</td><td>${h < -1 ? 'FAST' : h > 1 ? 'LATE' : 'JUST'}</td><td>${taiko}</td><td>${mai}</td></tr>`;
+    }).join('');
+  }
+
+  // ---------- events ----------
+  $('startBtn').addEventListener('click', () => S.running ? stop() : start());
+  $('resetBtn').addEventListener('click', () => {
+    S.hits = [];
+    offsetBig.textContent = '—'; offsetBig.className = 'offset-big';
+    judgeLabel.textContent = 'リセットしました'; judgeLabel.style.color = 'var(--ink-2)';
+    renderStats(); renderCharts();
+    $('hitTableBody').innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--muted)">まだデータがありません</td></tr>';
+  });
+  const bpmSlider = $('bpmSlider'), bpmNum = $('bpm');
+  function setBpm(v) {
+    v = Math.max(40, Math.min(300, +v || 120));
+    S.bpm = v; bpmSlider.value = v; bpmNum.value = v;
+  }
+  bpmSlider.addEventListener('input', e => setBpm(e.target.value));
+  bpmNum.addEventListener('change', e => setBpm(e.target.value));
+  $('subdiv').addEventListener('change', e => { S.subdiv = +e.target.value; });
+  const calib = $('calib');
+  calib.addEventListener('input', () => {
+    S.calib = +calib.value;
+    $('calibVal').textContent = `${S.calib > 0 ? '+' : ''}${S.calib} ms`;
+  });
+  $('autoZero').addEventListener('click', () => {
+    const st = stats();
+    if (!st) return;
+    const newCal = Math.round(Math.max(-100, Math.min(100, S.calib - st.mean)));
+    S.calib = newCal; calib.value = newCal;
+    $('calibVal').textContent = `${newCal > 0 ? '+' : ''}${newCal} ms`;
+    S.hits = S.hits.map(h => h - st.mean);
+    renderStats(); renderCharts(); renderTable();
+    judgeLabel.textContent = '平均を0に補正しました'; judgeLabel.style.color = 'var(--ink-2)';
+  });
+
+  pad.addEventListener('pointerdown', e => { e.preventDefault(); onHit(); });
+  window.addEventListener('keydown', e => {
+    if (e.repeat) return;
+    const tag = (document.activeElement && document.activeElement.tagName) || '';
+    if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return;
+    if (e.code === 'Space' || e.code === 'KeyF' || e.code === 'KeyJ') {
+      e.preventDefault();
+      onHit();
+    }
+  });
+
+  renderCharts();
+})();
+</script>
+</body>
+</html>
